@@ -1,0 +1,177 @@
+<form>
+  <label>Trace Map</label>
+  <fieldset submitButton="false">
+    <input type="dropdown" token="t_time" searchWhenChanged="true">
+      <label>Choose a time range</label>
+      <default>-1h</default>
+      <choice value="-1h">Last 1 hour</choice>
+      <choice value="-4h">Last 4 hours</choice>
+      <choice value="-24h">Last 24 hours</choice>
+      <choice value="-1w">Last 1 week</choice>
+      <change>
+        <set token="map_all">true</set>
+        <unset token="map_single"></unset>
+        <set token="time_label">$label$</set>
+      </change>
+    </input>
+    <input type="multiselect" token="gps_device" searchWhenChanged="true">
+      <label>Choose a GPS device</label>
+      <default>*</default>
+      <choice value="*">All</choice>
+      <search>
+        <query>index="gps" sourcetype="opengts:tk10x" device_id=* | dedup device_id</query>
+        <earliest>-7d</earliest>
+        <latest>now</latest>
+      </search>
+      <fieldForLabel>device_id</fieldForLabel>
+      <fieldForValue>device_id</fieldForValue>
+      <change>
+        <set token="map_all">true</set>
+        <unset token="map_single"></unset>
+      </change>
+      <valuePrefix>device_id="</valuePrefix>
+      <valueSuffix>"</valueSuffix>
+      <delimiter> OR </delimiter>
+    </input>
+  </fieldset>
+  <search id="speedsearch">
+    <query>index="gps" sourcetype="opengts:tk10x" |`gpsevent`| search $gps_device$ | foreach _time [eval tracktime=strftime(&lt;&lt;FIELD&gt;&gt;,"%Y-%m-%d %H:%M:%S")|eval trackid=device_id+","+tracktime] | dedup lon lat device_id |search NOT lat="0.00000" OR NOT lon="0.00000" |streamstats window=2 range(lat) as lat_diff range(lon) as lon_diff by device_id |where (lon_diff &gt; 0.01000 AND lat_diff &gt; 0.01000) OR speed &gt; 0 | sort -_time |eval speedfull=speed+" "+speed_unit</query>
+    <earliest>$t_time$</earliest>
+    <latest>now</latest>
+  </search>
+  <row>
+    <panel>
+      <table>
+        <search base="speedsearch">
+          <query>| table device_id _time speedfull | eval timelatest=_time+1</query>
+        </search>
+        <option name="wrap">true</option>
+        <option name="rowNumbers">false</option>
+        <option name="dataOverlayMode">none</option>
+        <option name="drilldown">row</option>
+        <option name="count">4</option>
+        <option name="fields">device_id, _time, speedfull</option>
+        <drilldown>
+          <unset token="map_all"></unset>
+          <set token="map_single">true</set>
+          <set token="map_time">$row._time$</set>
+          <set token="map_latest_time">$row.timelatest$</set>
+        </drilldown>
+        <fields>["device_id","_time","speedfull"]</fields>
+      </table>
+    </panel>
+    <panel>
+      <title>Average &amp; Maximum speed for: $time_label$</title>
+      <single>
+        <search base="speedsearch">
+          <query>| stats avg(speed) as avg_speed by device_id |eval avg_speed=round(avg_speed) |fields avg_speed</query>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="afterLabel">km/h</option>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x65a637","0xf7bc38","0xd93f3c"]</option>
+        <option name="rangeValues">[100,150]</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="trendInterval">auto</option>
+        <option name="underLabel">Average speed</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">1</option>
+        <option name="linkView">search</option>
+      </single>
+      <single>
+        <search base="speedsearch">
+          <query>| stats max(speed) as max_speed by device_id |eval max_speed=round(max_speed) |fields max_speed</query>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="afterLabel">km/h</option>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x65a637","0xf7bc38","0xd93f3c"]</option>
+        <option name="rangeValues">[100,150]</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="trendInterval">auto</option>
+        <option name="underLabel">Maximum speed</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">1</option>
+        <option name="linkView">search</option>
+      </single>
+    </panel>
+  </row>
+  <row>
+    <panel depends="$map_all$">
+      <map>
+        <search>
+          <query>index="gps" sourcetype="opengts:tk10x" |`gpsevent`| search $gps_device$ | foreach _time [eval tracktime=strftime(&lt;&lt;FIELD&gt;&gt;,"%Y-%m-%d %H:%M:%S")|eval trackid=device_id+","+tracktime] | dedup lon lat device_id |search NOT lat="0.00000" OR NOT lon="0.00000" |streamstats window=2 range(lat) as lat_diff range(lon) as lon_diff by device_id |where (lon_diff &gt; 0.01000 AND lat_diff &gt; 0.01000) OR speed &gt; 0 | geostats globallimit=100000 count by trackid</query>
+          <earliest>$t_time$</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="mapping.choroplethLayer.colorBins">5</option>
+        <option name="mapping.choroplethLayer.colorMode">auto</option>
+        <option name="mapping.choroplethLayer.maximumColor">0xDB5800</option>
+        <option name="mapping.choroplethLayer.minimumColor">0x2F25BA</option>
+        <option name="mapping.choroplethLayer.neutralPoint">0</option>
+        <option name="mapping.choroplethLayer.shapeOpacity">0.75</option>
+        <option name="mapping.choroplethLayer.showBorder">1</option>
+        <option name="mapping.data.maxClusters">9000</option>
+        <option name="mapping.map.center">(48.93,9.69)</option>
+        <option name="mapping.map.panning">true</option>
+        <option name="mapping.map.scrollZoom">true</option>
+        <option name="mapping.map.zoom">7</option>
+        <option name="mapping.markerLayer.markerMaxSize">90</option>
+        <option name="mapping.markerLayer.markerMinSize">40</option>
+        <option name="mapping.markerLayer.markerOpacity">0.8</option>
+        <option name="mapping.showTiles">1</option>
+        <option name="mapping.tileLayer.maxZoom">25</option>
+        <option name="mapping.tileLayer.minZoom">5</option>
+        <option name="mapping.tileLayer.tileOpacity">1</option>
+        <option name="mapping.type">marker</option>
+        <option name="drilldown">all</option>
+        <option name="height">800</option>
+        <option name="mapping.tileLayer.url">http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png</option>
+        <option name="mapping.tileLayer.subdomains">[a,b,c]</option>
+      </map>
+    </panel>
+    <panel depends="$map_single$">
+      <map>
+        <search>
+          <query>index="gps" sourcetype="opengts:tk10x" |`gpsevent`| search $gps_device$ | foreach _time [eval tracktime=strftime(&lt;&lt;FIELD&gt;&gt;,"%Y-%m-%d %H:%M:%S")|eval trackid=device_id+","+tracktime] | dedup lon lat device_id |search NOT lat="0.00000" OR NOT lon="0.00000" |streamstats window=2 range(lat) as lat_diff range(lon) as lon_diff by device_id |where (lon_diff &gt; 0.01000 AND lat_diff &gt; 0.01000) OR speed &gt; 0 | geostats globallimit=100000 count by trackid</query>
+          <earliest>$map_time$</earliest>
+          <latest>$map_latest_time$</latest>
+        </search>
+        <option name="mapping.choroplethLayer.colorBins">5</option>
+        <option name="mapping.choroplethLayer.colorMode">auto</option>
+        <option name="mapping.choroplethLayer.maximumColor">0xDB5800</option>
+        <option name="mapping.choroplethLayer.minimumColor">0x2F25BA</option>
+        <option name="mapping.choroplethLayer.neutralPoint">0</option>
+        <option name="mapping.choroplethLayer.shapeOpacity">0.75</option>
+        <option name="mapping.choroplethLayer.showBorder">1</option>
+        <option name="mapping.data.maxClusters">9000</option>
+        <option name="mapping.map.center">(48.93,9.69)</option>
+        <option name="mapping.map.panning">true</option>
+        <option name="mapping.map.scrollZoom">true</option>
+        <option name="mapping.map.zoom">7</option>
+        <option name="mapping.markerLayer.markerMaxSize">30</option>
+        <option name="mapping.markerLayer.markerMinSize">20</option>
+        <option name="mapping.markerLayer.markerOpacity">0.8</option>
+        <option name="mapping.showTiles">1</option>
+        <option name="mapping.tileLayer.maxZoom">25</option>
+        <option name="mapping.tileLayer.minZoom">5</option>
+        <option name="mapping.tileLayer.tileOpacity">1</option>
+        <option name="mapping.type">marker</option>
+        <option name="drilldown">all</option>
+        <option name="height">800</option>
+        <option name="mapping.tileLayer.url">http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png</option>
+        <option name="mapping.tileLayer.subdomains">[a,b,c]</option>
+      </map>
+    </panel>
+  </row>
+</form>
